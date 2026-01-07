@@ -1,0 +1,18 @@
+{
+  "name": "tienda-inventario-ventas",
+  "version": "1.1.0",
+  "description": "Sistema de ventas e inventario en tiempo real con usuarios, roles, Node.js, Express, Socket.io y SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "9.4.0",
+    "bcryptjs": "2.4.3",
+    "cookie-parser": "1.4.6",
+    "cors": "2.8.5",
+    "express": "4.18.2",
+    "jsonwebtoken": "9.0.2",
+    "socket.io": "4.7.2"
+  }
+}

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tienda en tiempo real con usuarios y roles</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f7fb; color: #222; }
+    h2 { margin: 0 0 10px; }
+    .section { background: #fff; padding: 16px; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+    input, select, button { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; }
+    button { background: #1f6feb; color: white; border: none; cursor: pointer; }
+    button.secondary { background: #6c757d; }
+    button.danger { background: #d9534f; }
+    button:disabled { background: #b6c0d1; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #e4e7ef; padding: 8px; text-align: center; }
+    th { background: #f0f3f9; }
+    #recibo { display:none; border: 1px solid #e4e7ef; margin-top: 12px; }
+    #recibo h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .muted { color: #666; font-size: 13px; }
+    @media print {
+      body { background: white; }
+      .section:not(#recibo) { display: none; }
+      #recibo { display: block; border: none; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="section" id="authSection">
+    <h2>Acceso</h2>
+    <div class="grid">
+      <input id="username" placeholder="Usuario" />
+      <input id="password" type="password" placeholder="Contraseña" />
+      <button id="btnLogin">Iniciar sesión</button>
+      <button id="btnLogout" class="secondary" disabled>Salir</button>
+    </div>
+    <p class="muted" id="userInfo">No autenticado</p>
+    <div class="row">
+      <input id="newUser" placeholder="Nuevo usuario (solo admin)" />
+      <input id="newPass" type="password" placeholder="Contraseña" />
+      <select id="newRole">
+        <option value="vendedor">Vendedor</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button id="btnCreateUser" class="secondary" disabled>Crear usuario</button>
+    </div>
+  </div>
+
+  <div class="section" id="productoSection">
+    <h2>Registrar producto</h2>
+    <div class="grid">
+      <input id="codigo" placeholder="Código (único)" />
+      <input id="nombre" placeholder="Nombre" />
+      <input id="cantidadTienda" type="number" min="0" placeholder="Cantidad Tienda" />
+      <input id="cantidadDeposito" type="number" min="0" placeholder="Cantidad Depósito" />
+      <input id="precio" type="number" min="0" step="0.01" placeholder="Precio Unitario" />
+      <button id="btnAgregar">Agregar producto</button>
+    </div>
+    <p class="muted">Solo admin puede crear productos.</p>
+  </div>
+
+  <div class="section" id="ventaSection">
+    <h2>Registrar venta</h2>
+    <div class="grid">
+      <input id="ventaCodigo" placeholder="Código producto" />
+      <input id="ventaCantidad" type="number" min="1" placeholder="Cantidad vendida" />
+      <select id="ventaUbicacion">
+        <option value="tienda">Tienda</option>
+        <option value="deposito">Depósito</option>
+      </select>
+      <button id="btnVender">Registrar venta</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Inventario actualizado</h2>
+    <div class="row">
+      <button class="secondary" id="btnExportInventario">Exportar inventario (CSV)</button>
+    </div>
+    <table id="tablaInventario">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Nombre</th>
+          <th>Tienda</th>
+          <th>Depósito</th>
+          <th>Precio</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Historial de ventas</h2>
+    <div class="row">
+      <button class="secondary" id="btnExportVentas">Exportar ventas (CSV)</button>
+    </div>
+    <table id="tablaVentas">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Código</th>
+          <th>Producto</th>
+          <th>Cantidad</th>
+          <th>Ubicación</th>
+          <th>Total</th>
+          <th>Vendedor</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Total de ventas: $<span id="totalVentas">0.00</span></h2>
+  </div>
+
+  <div id="recibo" class="section">
+    <h3>Recibo de venta</h3>
+    <p>Fecha: <span id="reciboFecha"></span></p>
+    <p>Producto: <span id="reciboProducto"></span></p>
+    <p>Cantidad: <span id="reciboCantidad"></span></p>
+    <p>Ubicación: <span id="reciboUbicacion"></span></p>
+    <p>Precio unitario: $<span id="reciboPrecio"></span></p>
+    <p>Total: $<span id="reciboTotal"></span></p>
+    <p>Vendedor: <span id="reciboVendedor"></span></p>
+    <div class="row">
+      <button onclick="window.print()">Imprimir recibo</button>
+      <button class="secondary" onclick="cerrarRecibo()">Cerrar</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const API = location.origin + '/api';
+    const socket = io();
+
+    let productos = [];
+    let ventas = [];
+    let totalVentas = 0;
+    let currentUser = null; // { username, role }
+
+    // Auth UI
+    const userInfo = document.getElementById('userInfo');
+    const btnLogin = document.getElementById('btnLogin');
+    const btnLogout = document.getElementById('btnLogout');
+    const btnCreateUser = document.getElementById('btnCreateUser');
+
+    const productoSection = document.getElementById('productoSection');
+    const ventaSection = document.getElementById('ventaSection');
+
+    async function refreshMe() {
+      try {
+        const res = await fetch(API + '/auth/me', { credentials: 'include' });
+        if (!res.ok) throw new Error('no');
+        const data = await res.json();
+        currentUser = data.user;
+      } catch {
+        currentUser = null;
+      }
+      updateAuthUI();
+      if (currentUser) {
+        await fetchData(); // cargar datos tras login
+      }
+    }
+
+    function updateAuthUI() {
+      if (currentUser) {
+        userInfo.innerText = `Autenticado como ${currentUser.username} (${currentUser.role})`;
+        btnLogout.disabled = false;
+        btnCreateUser.disabled = currentUser.role !== 'admin';
+        // Permisos UI
+        productoSection.style.display = currentUser.role === 'admin' ? 'block' : 'none';
+        ventaSection.style.display = 'block';
+      } else {
+        userInfo.innerText = 'No autenticado';
+        btnLogout.disabled = true;
+        btnCreateUser.disabled = true;
+        productoSection.style.display = 'none';
+        ventaSection.style.display = 'none';
+      }
+    }
+
+    btnLogin.addEventListener('click', async () => {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      try {
+        const res = await fetch(API + '/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error de login');
+        currentUser = data.user;
+        updateAuthUI();
+        await fetchData();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    btnLogout.addEventListener('click', async () => {
+      try {
+        const res = await fetch(API + '/auth/logout', { method: 'POST', credentials: 'include' });
+        currentUser = null;
+        updateAuthUI();
+      } catch {}
+    });
+
+    btnCreateUser.addEventListener('click', async () => {
+      const username = document.getElementById('newUser').value.trim();
+      const password = document.getElementById('newPass').value;
+      const role = document.getElementById('newRole').value;
+      if (!username || !password) return alert('Completa usuario y contraseña');
+      try {
+        const res = await fetch(API + '/usuarios', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password, role })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al crear usuario');
+        alert('Usuario creado');
+        document.getElementById('newUser').value = '';
+        document.getElementById('newPass').value = '';
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    // Inventario y ventas
+    async function fetchData() {
+      const [prodRes, venRes] = await Promise.all([
+        fetch(API + '/productos', { credentials: 'include' }),
+        fetch(API + '/ventas', { credentials: 'include' })
+      ]);
+      if (prodRes.ok) productos = await prodRes.json();
+      if (venRes.ok) ventas = await venRes.json();
+      totalVentas = ventas.reduce((acc, v) => acc + v.total, 0);
+      renderInventario();
+      renderVentas();
+      document.getElementById('totalVentas').innerText = Number(totalVentas).toFixed(2);
+    }
+
+    // Eventos UI de productos y ventas
+    document.getElementById('btnAgregar').addEventListener('click', async () => {
+      if (!currentUser || currentUser.role !== 'admin') return alert('No autorizado');
+      const payload = {
+        codigo: document.getElementById('codigo').value.trim(),
+        nombre: document.getElementById('nombre').value.trim(),
+        cantidadTienda: parseInt(document.getElementById('cantidadTienda').value, 10),
+        cantidadDeposito: parseInt(document.getElementById('cantidadDeposito').value, 10),
+        precio: parseFloat(document.getElementById('precio').value)
+      };
+      if (!payload.codigo || !payload.nombre || isNaN(payload.cantidadTienda) || isNaN(payload.cantidadDeposito) || isNaN(payload.precio)) {
+        alert('Completa todos los campos correctamente.');
+        return;
+      }
+      try {
+        const res = await fetch(API + '/productos', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al guardar producto');
+        limpiarInputsProducto();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('btnVender').addEventListener('click', async () => {
+      if (!currentUser) return alert('Inicia sesión');
+      const payload = {
+        codigo: document.getElementById('ventaCodigo').value.trim(),
+        cantidad: parseInt(document.getElementById('ventaCantidad').value, 10),
+        ubicacion: document.getElementById('ventaUbicacion').value
+      };
+      if (!payload.codigo || isNaN(payload.cantidad) || payload.cantidad <= 0) {
+        alert('Completa los campos de venta correctamente.');
+        return;
+      }
+      try {
+        const res = await fetch(API + '/ventas', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al registrar venta');
+        const r = data.recibo;
+        mostrarRecibo(r.fecha, r.producto, r.cantidad, r.ubicacion, r.precio, r.total, r.vendedor);
+        limpiarInputsVenta();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    // Export
+    document.getElementById('btnExportInventario').addEventListener('click', () => {
+      exportarCSV(productos.map(p => ({
+        codigo: p.codigo,
+        nombre: p.nombre,
+        cantidad_tienda: p.cantidad_tienda,
+        cantidad_deposito: p.cantidad_deposito,
+        precio: p.precio,
+        total_valor: ((p.cantidad_tienda + p.cantidad_deposito) * p.precio).toFixed(2)
+      })), 'inventario.csv');
+    });
+    document.getElementById('btnExportVentas').addEventListener('click', () => {
+      exportarCSV(ventas, 'ventas.csv');
+    });
+
+    // Socket.io estado
+    socket.on('estado', (estado) => {
+      productos = estado.productos || [];
+      ventas = estado.ventas || [];
+      totalVentas = estado.totalVentas || 0;
+      renderInventario();
+      renderVentas();
+      document.getElementById('totalVentas').innerText = Number(totalVentas).toFixed(2);
+    });
+
+    // Render
+    function renderInventario() {
+      const tbody = document.querySelector('#tablaInventario tbody');
+      tbody.innerHTML = '';
+      productos.forEach(p => {
+        const total = (p.cantidad_tienda + p.cantidad_deposito) * p.precio;
+        tbody.innerHTML += `
+          <tr>
+            <td>${p.codigo}</td>
+            <td>${p.nombre}</td>
+            <td>${p.cantidad_tienda}</td>
+            <td>${p.cantidad_deposito}</td>
+            <td>$${Number(p.precio).toFixed(2)}</td>
+            <td>$${Number(total).toFixed(2)}</td>
+          </tr>
+        `;
+      });
+    }
+    function renderVentas() {
+      const tbody = document.querySelector('#tablaVentas tbody');
+      tbody.innerHTML = '';
+      ventas.forEach(v => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${v.fecha}</td>
+            <td>${v.codigo}</td>
+            <td>${v.producto}</td>
+            <td>${v.cantidad}</td>
+            <td>${v.ubicacion}</td>
+            <td>$${Number(v.total).toFixed(2)}</td>
+            <td>${v.usuario}</td>
+          </tr>
+        `;
+      });
+    }
+
+    // Recibo
+    function mostrarRecibo(fecha, producto, cantidad, ubicacion, precio, total, vendedor) {
+      document.getElementById('reciboFecha').innerText = fecha;
+      document.getElementById('reciboProducto').innerText = producto;
+      document.getElementById('reciboCantidad').innerText = cantidad;
+      document.getElementById('reciboUbicacion').innerText = ubicacion;
+      document.getElementById('reciboPrecio').innerText = Number(precio).toFixed(2);
+      document.getElementById('reciboTotal').innerText = Number(total).toFixed(2);
+      document.getElementById('reciboVendedor').innerText = vendedor;
+      document.getElementById('recibo').style.display = 'block';
+    }
+    function cerrarRecibo() { document.getElementById('recibo').style.display = 'none'; }
+
+    // Utils
+    function limpiarInputsProducto() {
+      ['codigo','nombre','cantidadTienda','cantidadDeposito','precio'].forEach(id => document.getElementById(id).value = '');
+    }
+    function limpiarInputsVenta() {
+      document.getElementById('ventaCodigo').value = '';
+      document.getElementById('ventaCantidad').value = '';
+      document.getElementById('ventaUbicacion').value = 'tienda';
+    }
+    function exportarCSV(datos, nombre) {
+      let csv = '';
+      if (datos.length > 0) {
+        const headers = Object.keys(datos[0]).join(',');
+        csv += headers + '\n';
+        datos.forEach(d => {
+          csv += Object.values(d).map(v => `"${String(v).replace(/"/g,'""')}"`).join(',') + '\n';
+        });
+      } else {
+        csv = 'Sin datos\n';
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombre; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Inicio
+    refreshMe();
+  </script>
+</body>
+</html>
